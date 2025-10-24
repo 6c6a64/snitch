@@ -1,0 +1,5 @@
+.vscode/
+snitch-venv/
+__pycache__/
+*.pyc
+config.yml

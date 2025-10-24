@@ -1,0 +1,42 @@
+# Taiga instance
+taiga:
+  base_url: "https://example.com/api/v1"
+  verify_ssl: false
+  # auth_type: normal
+  # username: ""
+  # password: ""
+  # If using token auth instead:
+  auth_type: token
+  api_token: ""
+
+team:
+  users:
+    - display: "Char"
+      username: "char"
+      expected_hours_per_day: 7
+      expected_days_per_week: 5
+      token: ""
+    - display: "LJD"
+      username: "ldj"
+      expected_hours_per_day: 7
+      expected_days_per_week: 3
+
+# project mappings
+projects:
+  Rework:
+    id: 1
+    time_sources: ["userstories"]
+  Legacy:
+    id: 3
+    time_sources: ["userstories"]
+  Agent:
+    id: 2
+    time_sources: ["tasks"]
+
+# Name of the custom attribute in taiga used for hours
+custom_time_attr: "Temps passé"
+task_custom_time_attr: "Temps passé"
+
+# default expected hours/day if not specified per user
+expected_hours_per_day: 7
+expected_days_per_week: 5
