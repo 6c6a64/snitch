@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>snitch</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .focus-ring:focus { outline: 2px solid black; outline-offset: 2px; }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body class="bg-white text-zinc-900 selection:bg-zinc-900 selection:text-white">
+  <!-- HEADER -->
+  <header class="max-w-6xl mx-auto px-6 pt-10 pb-6">
+    <h1 class="text-4xl md:text-5xl font-semibold tracking-tight">snitch</h1>
+    <p class="mt-2 text-zinc-600">wondering if you logged all your times this week? i gotcha</p>
+  </header>
+
+  <!-- CONTROLS -->
+  <section class="max-w-6xl mx-auto px-6 pb-6">
+    <div class="flex flex-col md:flex-row md:items-end gap-3">
+      <div class="flex-1">
+        <label class="block text-sm text-zinc-700 mb-1">Projects</label>
+        <input id="projects" class="w-full border border-zinc-300 rounded-lg px-3 py-2 focus-ring" value="Rework,Legacy" />
+      </div>
+      <div>
+        <label class="block text-sm text-zinc-700 mb-1">Start</label>
+        <input id="start" type="date" class="border border-zinc-300 rounded-lg px-3 py-2 focus-ring" />
+      </div>
+      <div>
+        <label class="block text-sm text-zinc-700 mb-1">End</label>
+        <input id="end" type="date" class="border border-zinc-300 rounded-lg px-3 py-2 focus-ring" />
+      </div>
+      <div class="flex-1">
+        <label class="block text-sm text-zinc-700 mb-1">Users (optional)</label>
+        <input id="users" class="w-full border border-zinc-300 rounded-lg px-3 py-2 focus-ring" placeholder="comma usernames or empty" />
+      </div>
+      <button id="refresh"
+        class="h-10 px-5 rounded-lg border border-black bg-black text-white hover:translate-y-px transition">
+        Refresh
+      </button>
+    </div>
+
+    <!-- QUICK FILTERS -->
+    <div class="mt-4 flex flex-wrap gap-2">
+      <button data-preset="this-week" class="preset px-3 py-1.5 rounded-full border border-zinc-300 hover:border-zinc-900 transition">This week</button>
+      <button data-preset="last-week" class="preset px-3 py-1.5 rounded-full border border-zinc-300 hover:border-zinc-900 transition">Last week</button>
+      <button data-preset="this-month" class="preset px-3 py-1.5 rounded-full border border-zinc-300 hover:border-zinc-900 transition">This month</button>
+      <span id="meta" class="ml-auto text-sm text-zinc-500"></span>
+    </div>
+  </section>
+
+  <!-- SUMMARY CARDS -->
+  <section class="max-w-6xl mx-auto px-6 pb-4">
+    <div id="cards" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <!-- filled by JS -->
+    </div>
+  </section>
+
+  <!-- TABLE -->
+  <main class="max-w-6xl mx-auto px-6 pb-20">
+    <div class="overflow-x-auto border border-zinc-200 rounded-xl">
+      <table class="min-w-full bg-white">
+        <thead class="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-600">
+          <tr>
+            <th class="px-4 py-3">Member</th>
+            <th class="px-4 py-3">Logged</th>
+            <th class="px-4 py-3">Expected</th>
+            <th class="px-4 py-3">Δ</th>
+            <th class="px-4 py-3">Entries</th>
+          </tr>
+        </thead>
+        <tbody id="tbody" class="text-sm">
+          <!-- rows by JS -->
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <script>
+    function yyyy_mm_dd(d){ return d.toISOString().slice(0,10); }
+    const today = new Date();
+    const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay()+6)%7));
+    const friday = new Date(monday); friday.setDate(monday.getDate()+4);
+    const startEl = document.getElementById('start');
+    const endEl = document.getElementById('end');
+    startEl.value = yyyy_mm_dd(monday);
+    endEl.value = yyyy_mm_dd(friday);
+
+    async function load(){
+      const projects = document.getElementById('projects').value.trim();
+      const start = startEl.value;
+      const end = endEl.value;
+      const users = document.getElementById('users').value.trim();
+      const qs = new URLSearchParams({projects, start, end});
+      if (users) qs.set('users', users);
+
+      const res = await fetch(`/api/summary?${qs.toString()}`);
+      if(!res.ok){
+        const text = await res.text();
+        renderError(res.status, text);
+        return;
+      }
+      const data = await res.json();
+      renderMeta(data);
+      renderCards(data);
+      renderTable(data);
+    }
+
+    function renderMeta(data){
+      const meta = document.getElementById('meta');
+      meta.textContent = `Projects: ${data.projects.join(', ')} · ${data.range.start} → ${data.range.end} · ${data.range.workdays} workdays`;
+    }
+
+    function renderCards(data){
+      const cards = document.getElementById('cards');
+      const totals = data.results.reduce((acc,r)=> {
+        acc.logged += r.total_hours;
+        acc.expected += r.expected_hours;
+        return acc;
+      }, {logged:0, expected:0});
+      const diff = totals.logged - totals.expected;
+
+      cards.innerHTML = `
+        ${card('Logged', `${fmt(totals.logged)}h`)}
+        ${card('Expected', `${fmt(totals.expected)}h`)}
+        ${card('Δ', `${diff>=0?'+':''}${fmt(diff)}h`, diff>=0?'text-green-700':'text-red-700')}
+      `;
+    }
+
+    function card(label, value, extraClass=''){
+      return `
+        <div class="rounded-xl border border-zinc-200 p-4 hover:shadow-sm transition">
+          <div class="text-xs uppercase tracking-wide text-zinc-500">${label}</div>
+          <div class="mt-1 text-3xl font-semibold ${extraClass} num">${value}</div>
+        </div>
+      `;
+    }
+
+    function renderTable(data){
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = '';
+      const rows = data.results
+        .sort((a,b)=> a.display.localeCompare(b.display))
+        .map(r => row(r))
+        .join('');
+      tbody.innerHTML = rows;
+    }
+
+    function row(r){
+      const pct = r.expected_hours > 0 ? Math.max(0, Math.min(100, (r.total_hours/r.expected_hours)*100)) : 0;
+      const entriesHtml = r.entries
+        .sort((a,b)=> a.date.localeCompare(b.date))
+        .map(e => {
+          const label = [e.userstory, e.task].filter(Boolean).join(" — ");
+          return `<div class="py-0.5">
+            <span class="num text-zinc-600">${e.date}</span> ·
+            ${escapeHtml(label || "(no title)")} ·
+            <strong class="num">${fmt(e.hours)}h</strong>
+          </div>`;
+        }).join('');
+
+      return `
+        <tr class="border-t border-zinc-100 hover:bg-zinc-50">
+          <td class="px-4 py-3 align-top">
+            <div class="font-medium">${escapeHtml(r.display)}</div>
+            <div class="text-xs text-zinc-500">@${escapeHtml(r.username)}</div>
+          </td>
+          <td class="px-4 py-3 align-top num">${fmt(r.total_hours)}h</td>
+          <td class="px-4 py-3 align-top num">${fmt(r.expected_hours)}h</td>
+          <td class="px-4 py-3 align-top num ${r.diff>=0?'text-green-700':'text-red-700'}">${r.diff>=0?'+':''}${fmt(r.diff)}h</td>
+          <td class="px-4 py-3">
+            <div class="mb-2 h-2 bg-zinc-200 rounded overflow-hidden">
+              <div class="h-full bg-zinc-900" style="width:${pct}%;"></div>
+            </div>
+            ${entriesHtml || '<span class="text-zinc-400">—</span>'}
+          </td>
+        </tr>
+      `;
+    }
+
+    function renderError(status, text){
+      document.getElementById('cards').innerHTML = '';
+      document.getElementById('tbody').innerHTML = `
+        <tr><td colspan="5" class="px-4 py-8">
+          <div class="rounded-xl border border-zinc-200 p-6">
+            <div class="text-sm text-zinc-600">Error ${status}</div>
+            <pre class="mt-2 text-sm overflow-auto">${escapeHtml(text || '')}</pre>
+          </div>
+        </td></tr>
+      `;
+      document.getElementById('meta').textContent = '';
+    }
+
+    // Presets
+    document.querySelectorAll('.preset').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.preventDefault();
+        const k = btn.getAttribute('data-preset');
+        const now = new Date();
+        if(k==='this-week'){
+          const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay()+6)%7));
+          const fri = new Date(mon); fri.setDate(mon.getDate()+4);
+          startEl.value = yyyy_mm_dd(mon); endEl.value = yyyy_mm_dd(fri);
+        } else if(k==='last-week'){
+          const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay()+6)%7) - 7);
+          const fri = new Date(mon); fri.setDate(mon.getDate()+4);
+          startEl.value = yyyy_mm_dd(mon); endEl.value = yyyy_mm_dd(fri);
+        } else if(k==='this-month'){
+          const first = new Date(now.getFullYear(), now.getMonth(), 1);
+          const last = new Date(now.getFullYear(), now.getMonth()+1, 0);
+          startEl.value = yyyy_mm_dd(first); endEl.value = yyyy_mm_dd(last);
+        }
+        load();
+      });
+    });
+
+    function fmt(n){ return (Math.round(Number(n)*100)/100).toFixed(2); }
+    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    document.getElementById('refresh').addEventListener('click', (e)=>{ e.preventDefault(); load(); });
+    load();
+
+    let currentController = null;
+
+  function setBusy(on){
+    document.getElementById('loading').style.display = on ? 'block' : 'none';
+    document.querySelectorAll('#controls input, #controls button, .preset')
+      .forEach(el => { el.disabled = on; el.style.opacity = on ? .6 : 1; });
+  }
+
+  async function load(){
+    // cancel previous request if still running
+    if (currentController) currentController.abort();
+    currentController = new AbortController();
+
+    const projects = document.getElementById('projects').value.trim();
+    const start = document.getElementById('start').value;
+    const end = document.getElementById('end').value;
+    const users = document.getElementById('users').value.trim();
+    const qs = new URLSearchParams({projects, start, end});
+    if (users) qs.set('users', users);
+
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/summary?${qs.toString()}`, {
+        signal: currentController.signal,
+        cache: 'no-store',
+      });
+      if(!res.ok){
+        const text = await res.text();
+        renderError(res.status, text);
+        return;
+      }
+      const data = await res.json();
+      renderMeta(data);
+      renderCards(data);
+      renderTable(data);
+    } catch (e) {
+      if (e.name !== 'AbortError') renderError(0, String(e));
+    } finally {
+      setBusy(false);
+      currentController = null;
+    }
+  }
+
+  </script>
+</body>
+<div id="loading"
+     style="position:fixed;inset:0;display:none;background:rgba(255,255,255,.6);backdrop-filter:saturate(0.9) blur(2px);z-index:50">
+  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font:600 16px/1.2 system-ui">
+    Loading…
+  </div>
+</div>
+
+</html>
