@@ -31,4 +31,5 @@ Since I didn't have access to every single project, we decided to allow members 
 - I want visualisations (graphs/charts)
 - Also could add an hover tooltip on the usernames to allow quick configurations edits (time expectations)
 
-
+## Dashboard
+![Dashboard](illu.png)

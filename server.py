@@ -189,7 +189,7 @@ app.add_middleware(
 
 @app.get("/api/projects")
 def list_projects():
-    # keys of your normalized PROJECTS dict
+    # keys normalized PROJECTS dict
     return {"projects": list(PROJECTS.keys())}
 
 @app.get("/api/summary")
