@@ -52,12 +52,10 @@ DEFAULT_TIMEOUT: Tuple[int,int] = (5, 25)
 
 def _get(url, **kw):
     kw.setdefault("timeout", DEFAULT_TIMEOUT)
-    print(f"GET {url} with {kw}")
     return SESSION.get(url, **kw)
 
 def _post(url, **kw):
     kw.setdefault("timeout", DEFAULT_TIMEOUT)
-    print(f"POST {url} with {kw}")
     return SESSION.post(url, **kw)
 
 # ----------------------
