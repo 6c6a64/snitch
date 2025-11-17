@@ -5,49 +5,86 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>snitch</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+  </script>
+  <script>
+    (function(){
+      try {
+        const stored = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (stored === 'dark' || (!stored && prefersDark)) {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (_) {
+        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          document.documentElement.classList.add('dark');
+        }
+      }
+    })();
+  </script>
   <style>
     .focus-ring:focus { outline: 2px solid black; outline-offset: 2px; }
     .num { font-variant-numeric: tabular-nums; }
+    .dark .focus-ring:focus { outline-color: white; }
+    #loading {
+      color: #09090b;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+    .dark #loading {
+      background: rgba(24, 24, 27, .6) !important;
+      color: #f4f4f5;
+    }
   </style>
 </head>
-<body class="bg-white text-zinc-900 selection:bg-zinc-900 selection:text-white">
+<body class="bg-white text-zinc-900 selection:bg-zinc-900 selection:text-white dark:bg-zinc-950 dark:text-zinc-100 dark:selection:bg-zinc-100 dark:selection:text-zinc-900">
   <!-- HEADER -->
   <header class="max-w-6xl mx-auto px-6 pt-10 pb-6">
-    <h1 class="text-4xl md:text-5xl font-semibold tracking-tight">snitch</h1>
-    <p class="mt-2 text-zinc-600">wondering if you logged all your times this week? i gotcha</p>
+    <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div>
+        <h1 class="text-4xl md:text-5xl font-semibold tracking-tight">snitch</h1>
+        <p class="mt-2 text-zinc-600 dark:text-zinc-400">wondering if you logged all your times this week? i gotcha</p>
+      </div>
+      <button id="theme-toggle"
+        class="self-start rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:translate-y-px hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+        type="button"
+        aria-pressed="false">
+        Dark mode
+      </button>
+    </div>
   </header>
 
   <!-- CONTROLS -->
-  <section class="max-w-6xl mx-auto px-6 pb-6">
+  <section id="controls" class="max-w-6xl mx-auto px-6 pb-6">
     <div class="flex flex-col md:flex-row md:items-end gap-3">
       <div class="flex-1">
-        <label class="block text-sm text-zinc-700 mb-1">Projects</label>
-        <input id="projects" class="w-full border border-zinc-300 rounded-lg px-3 py-2 focus-ring" value="Rework,Legacy" />
+        <label class="block text-sm text-zinc-700 mb-1 dark:text-zinc-300">Projects</label>
+        <input id="projects" class="w-full border border-zinc-300 rounded-lg px-3 py-2 focus-ring bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" value="Rework,Legacy" />
       </div>
       <div>
-        <label class="block text-sm text-zinc-700 mb-1">Start</label>
-        <input id="start" type="date" class="border border-zinc-300 rounded-lg px-3 py-2 focus-ring" />
+        <label class="block text-sm text-zinc-700 mb-1 dark:text-zinc-300">Start</label>
+        <input id="start" type="date" class="border border-zinc-300 rounded-lg px-3 py-2 focus-ring bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
       </div>
       <div>
-        <label class="block text-sm text-zinc-700 mb-1">End</label>
-        <input id="end" type="date" class="border border-zinc-300 rounded-lg px-3 py-2 focus-ring" />
+        <label class="block text-sm text-zinc-700 mb-1 dark:text-zinc-300">End</label>
+        <input id="end" type="date" class="border border-zinc-300 rounded-lg px-3 py-2 focus-ring bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" />
       </div>
       <div class="flex-1">
-        <label class="block text-sm text-zinc-700 mb-1">Users (optional)</label>
-        <input id="users" class="w-full border border-zinc-300 rounded-lg px-3 py-2 focus-ring" placeholder="comma usernames or empty" />
+        <label class="block text-sm text-zinc-700 mb-1 dark:text-zinc-300">Users (optional)</label>
+        <input id="users" class="w-full border border-zinc-300 rounded-lg px-3 py-2 focus-ring bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" placeholder="comma usernames or empty" />
       </div>
       <button id="refresh"
-        class="h-10 px-5 rounded-lg border border-black bg-black text-white hover:translate-y-px transition">
+        class="h-10 px-5 rounded-lg border border-black bg-black text-white hover:translate-y-px transition dark:border-white dark:bg-white dark:text-zinc-900">
         Refresh
       </button>
     </div>
 
     <!-- QUICK FILTERS -->
     <div class="mt-4 flex flex-wrap gap-2">
-      <button data-preset="this-week" class="preset px-3 py-1.5 rounded-full border border-zinc-300 hover:border-zinc-900 transition">This week</button>
-      <button data-preset="last-week" class="preset px-3 py-1.5 rounded-full border border-zinc-300 hover:border-zinc-900 transition">Last week</button>
-      <button data-preset="this-month" class="preset px-3 py-1.5 rounded-full border border-zinc-300 hover:border-zinc-900 transition">This month</button>
-      <span id="meta" class="ml-auto text-sm text-zinc-500"></span>
+      <button data-preset="this-week" class="preset px-3 py-1.5 rounded-full border border-zinc-300 hover:border-zinc-900 transition dark:border-zinc-700 dark:text-zinc-100 dark:hover:border-white">This week</button>
+      <button data-preset="last-week" class="preset px-3 py-1.5 rounded-full border border-zinc-300 hover:border-zinc-900 transition dark:border-zinc-700 dark:text-zinc-100 dark:hover:border-white">Last week</button>
+      <button data-preset="this-month" class="preset px-3 py-1.5 rounded-full border border-zinc-300 hover:border-zinc-900 transition dark:border-zinc-700 dark:text-zinc-100 dark:hover:border-white">This month</button>
+      <span id="meta" class="ml-auto text-sm text-zinc-500 dark:text-zinc-400"></span>
     </div>
   </section>
 
@@ -60,9 +97,9 @@
 
   <!-- TABLE -->
   <main class="max-w-6xl mx-auto px-6 pb-20">
-    <div class="overflow-x-auto border border-zinc-200 rounded-xl">
-      <table class="min-w-full bg-white">
-        <thead class="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-600">
+    <div class="overflow-x-auto border border-zinc-200 rounded-xl dark:border-zinc-800">
+      <table class="min-w-full bg-white dark:bg-zinc-900">
+        <thead class="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
           <tr>
             <th class="px-4 py-3">Member</th>
             <th class="px-4 py-3">Logged</th>
@@ -125,14 +162,14 @@
       cards.innerHTML = `
         ${card('Logged', `${fmt(totals.logged)}h`)}
         ${card('Expected', `${fmt(totals.expected)}h`)}
-        ${card('Δ', `${diff>=0?'+':''}${fmt(diff)}h`, diff>=0?'text-green-700':'text-red-700')}
+        ${card('Δ', `${diff>=0?'+':''}${fmt(diff)}h`, diff>=0?'text-green-700 dark:text-green-400':'text-red-700 dark:text-red-400')}
       `;
     }
 
     function card(label, value, extraClass=''){
       return `
-        <div class="rounded-xl border border-zinc-200 p-4 hover:shadow-sm transition">
-          <div class="text-xs uppercase tracking-wide text-zinc-500">${label}</div>
+        <div class="rounded-xl border border-zinc-200 p-4 hover:shadow-sm transition dark:border-zinc-800 dark:bg-zinc-900">
+          <div class="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">${label}</div>
           <div class="mt-1 text-3xl font-semibold ${extraClass} num">${value}</div>
         </div>
       `;
@@ -154,27 +191,28 @@
         .sort((a,b)=> a.date.localeCompare(b.date))
         .map(e => {
           const label = [e.userstory, e.task].filter(Boolean).join(" — ");
+          const safeLabel = label ? escapeHtml(label) : '<span class="text-zinc-500 dark:text-zinc-400">(no title)</span>';
           return `<div class="py-0.5">
-            <span class="num text-zinc-600">${e.date}</span> ·
-            ${escapeHtml(label || "(no title)")} ·
+            <span class="num text-zinc-600 dark:text-zinc-400">${e.date}</span> ·
+            ${safeLabel} ·
             <strong class="num">${fmt(e.hours)}h</strong>
           </div>`;
         }).join('');
 
       return `
-        <tr class="border-t border-zinc-100 hover:bg-zinc-50">
+        <tr class="border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
           <td class="px-4 py-3 align-top">
             <div class="font-medium">${escapeHtml(r.display)}</div>
-            <div class="text-xs text-zinc-500">@${escapeHtml(r.username)}</div>
+            <div class="text-xs text-zinc-500 dark:text-zinc-400">@${escapeHtml(r.username)}</div>
           </td>
           <td class="px-4 py-3 align-top num">${fmt(r.total_hours)}h</td>
           <td class="px-4 py-3 align-top num">${fmt(r.expected_hours)}h</td>
-          <td class="px-4 py-3 align-top num ${r.diff>=0?'text-green-700':'text-red-700'}">${r.diff>=0?'+':''}${fmt(r.diff)}h</td>
+          <td class="px-4 py-3 align-top num ${r.diff>=0?'text-green-700 dark:text-green-400':'text-red-700 dark:text-red-400'}">${r.diff>=0?'+':''}${fmt(r.diff)}h</td>
           <td class="px-4 py-3">
-            <div class="mb-2 h-2 bg-zinc-200 rounded overflow-hidden">
-              <div class="h-full bg-zinc-900" style="width:${pct}%;"></div>
+            <div class="mb-2 h-2 bg-zinc-200 rounded overflow-hidden dark:bg-zinc-700">
+              <div class="h-full bg-zinc-900 dark:bg-white" style="width:${pct}%;"></div>
             </div>
-            ${entriesHtml || '<span class="text-zinc-400">—</span>'}
+            ${entriesHtml || '<span class="text-zinc-400 dark:text-zinc-500">—</span>'}
           </td>
         </tr>
       `;
@@ -184,9 +222,9 @@
       document.getElementById('cards').innerHTML = '';
       document.getElementById('tbody').innerHTML = `
         <tr><td colspan="5" class="px-4 py-8">
-          <div class="rounded-xl border border-zinc-200 p-6">
-            <div class="text-sm text-zinc-600">Error ${status}</div>
-            <pre class="mt-2 text-sm overflow-auto">${escapeHtml(text || '')}</pre>
+          <div class="rounded-xl border border-zinc-200 p-6 dark:border-zinc-800">
+            <div class="text-sm text-zinc-600 dark:text-zinc-400">Error ${status}</div>
+            <pre class="mt-2 text-sm overflow-auto text-zinc-900 dark:text-zinc-100">${escapeHtml(text || '')}</pre>
           </div>
         </td></tr>
       `;
@@ -219,10 +257,55 @@
     function fmt(n){ return (Math.round(Number(n)*100)/100).toFixed(2); }
     function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+    let currentController = null;
+    let cachedThemePreference = null;
+    try {
+      cachedThemePreference = localStorage.getItem('theme');
+    } catch (_) {
+      cachedThemePreference = null;
+    }
+
     document.getElementById('refresh').addEventListener('click', (e)=>{ e.preventDefault(); load(); });
+    initTheme();
     load();
 
-    let currentController = null;
+  function initTheme(){
+    const toggle = document.getElementById('theme-toggle');
+    if(!toggle) return;
+
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const preferred = cachedThemePreference || (media.matches ? 'dark' : 'light');
+    applyTheme(preferred);
+
+    toggle.addEventListener('click', ()=>{
+      const next = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
+      cachedThemePreference = next;
+      try {
+        localStorage.setItem('theme', next);
+      } catch (_) {
+        // ignore storage failures
+      }
+      applyTheme(next);
+    });
+
+    const handleSystemChange = (event)=>{
+      if(!cachedThemePreference){
+        applyTheme(event.matches ? 'dark' : 'light');
+      }
+    };
+
+    if(media.addEventListener){
+      media.addEventListener('change', handleSystemChange);
+    } else if (media.addListener){
+      media.addListener(handleSystemChange);
+    }
+
+    function applyTheme(mode){
+      document.documentElement.classList.toggle('dark', mode === 'dark');
+      toggle.textContent = mode === 'dark' ? 'Light mode' : 'Dark mode';
+      toggle.setAttribute('aria-pressed', mode === 'dark' ? 'true' : 'false');
+    }
+  }
 
   function setBusy(on){
     document.getElementById('loading').style.display = on ? 'block' : 'none';
