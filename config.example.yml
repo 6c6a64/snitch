@@ -40,3 +40,6 @@ task_custom_time_attr: "Temps passé"
 # default expected hours/day if not specified per user
 expected_hours_per_day: 7
 expected_days_per_week: 5
+
+# time zone used to interpret date ranges
+time_zone: "Europe/Paris"

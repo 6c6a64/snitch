@@ -45,12 +45,18 @@
         <h1 class="text-4xl md:text-5xl font-semibold tracking-tight">snitch</h1>
         <p class="mt-2 text-zinc-600 dark:text-zinc-400">wondering if you logged all your times this week? i gotcha</p>
       </div>
-      <button id="theme-toggle"
-        class="self-start rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:translate-y-px hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-        type="button"
-        aria-pressed="false">
-        Dark mode
-      </button>
+      <div class="flex items-center gap-2">
+        <a href="/config.html"
+          class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:translate-y-px hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800">
+          Config
+        </a>
+        <button id="theme-toggle"
+          class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:translate-y-px hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+          type="button"
+          aria-pressed="false">
+          Dark mode
+        </button>
+      </div>
     </div>
   </header>
 
@@ -116,14 +122,63 @@
   </main>
 
   <script>
-    function yyyy_mm_dd(d){ return d.toISOString().slice(0,10); }
-    const today = new Date();
-    const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay()+6)%7));
-    const friday = new Date(monday); friday.setDate(monday.getDate()+4);
+    const PARIS_TZ = 'Europe/Paris';
+    const YMD_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+      timeZone: PARIS_TZ,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+
+    function formatYmd(date){
+      const parts = YMD_FORMATTER.formatToParts(date);
+      const map = {};
+      for (const p of parts){
+        if (p.type !== 'literal') map[p.type] = p.value;
+      }
+      return `${map.year}-${map.month}-${map.day}`;
+    }
+
+    function ymdToUTCDate(ymd){
+      const [y,m,d] = ymd.split('-').map(Number);
+      return new Date(Date.UTC(y, m-1, d));
+    }
+
+    function utcDateToYmd(d){
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth()+1).padStart(2,'0');
+      const day = String(d.getUTCDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    }
+
+    function addDays(ymd, days){
+      const d = ymdToUTCDate(ymd);
+      d.setUTCDate(d.getUTCDate() + days);
+      return utcDateToYmd(d);
+    }
+
+    function mondayForYmd(ymd){
+      const d = ymdToUTCDate(ymd);
+      const dow = (d.getUTCDay() + 6) % 7;
+      d.setUTCDate(d.getUTCDate() - dow);
+      return utcDateToYmd(d);
+    }
+
+    function monthRangeForYmd(ymd){
+      const [y,m] = ymd.split('-').map(Number);
+      const start = `${y}-${String(m).padStart(2,'0')}-01`;
+      const last = new Date(Date.UTC(y, m, 1));
+      last.setUTCDate(last.getUTCDate() - 1);
+      return { start, end: utcDateToYmd(last) };
+    }
+
+    const todayYmd = formatYmd(new Date());
+    const monday = mondayForYmd(todayYmd);
+    const friday = addDays(monday, 4);
     const startEl = document.getElementById('start');
     const endEl = document.getElementById('end');
-    startEl.value = yyyy_mm_dd(monday);
-    endEl.value = yyyy_mm_dd(friday);
+    startEl.value = monday;
+    endEl.value = friday;
 
     async function load(){
       const projects = document.getElementById('projects').value.trim();
@@ -236,19 +291,18 @@
       btn.addEventListener('click', (e)=>{
         e.preventDefault();
         const k = btn.getAttribute('data-preset');
-        const now = new Date();
+        const today = formatYmd(new Date());
         if(k==='this-week'){
-          const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay()+6)%7));
-          const fri = new Date(mon); fri.setDate(mon.getDate()+4);
-          startEl.value = yyyy_mm_dd(mon); endEl.value = yyyy_mm_dd(fri);
+          const mon = mondayForYmd(today);
+          const fri = addDays(mon, 4);
+          startEl.value = mon; endEl.value = fri;
         } else if(k==='last-week'){
-          const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay()+6)%7) - 7);
-          const fri = new Date(mon); fri.setDate(mon.getDate()+4);
-          startEl.value = yyyy_mm_dd(mon); endEl.value = yyyy_mm_dd(fri);
+          const mon = addDays(mondayForYmd(today), -7);
+          const fri = addDays(mon, 4);
+          startEl.value = mon; endEl.value = fri;
         } else if(k==='this-month'){
-          const first = new Date(now.getFullYear(), now.getMonth(), 1);
-          const last = new Date(now.getFullYear(), now.getMonth()+1, 0);
-          startEl.value = yyyy_mm_dd(first); endEl.value = yyyy_mm_dd(last);
+          const range = monthRangeForYmd(today);
+          startEl.value = range.start; endEl.value = range.end;
         }
         load();
       });

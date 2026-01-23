@@ -1,5 +1,6 @@
 import os
 import datetime as dt
+from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Tuple
 
 import yaml
@@ -32,6 +33,8 @@ TASK_CUSTOM_TIME_ATTR = CFG.get("task_custom_time_attr", CUSTOM_TIME_ATTR)
 
 DEFAULT_HOURS_PER_DAY = float(CFG.get("expected_hours_per_day", 7))
 DEFAULT_DAYS_PER_WEEK = float(CFG.get("expected_days_per_week", 5))
+TIME_ZONE = CFG.get("time_zone", "Europe/Paris")
+LOCAL_TZ = ZoneInfo(TIME_ZONE)
 
 # allow int or {id,time_sources}
 def _normalize_projects(raw: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
@@ -49,6 +52,91 @@ def _normalize_projects(raw: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
 PROJECTS = _normalize_projects(RAW_PROJECTS)
 SESSION = requests.Session()
 DEFAULT_TIMEOUT: Tuple[int,int] = (5, 25)
+ALLOWED_TIME_SOURCES = {"userstories", "tasks"}
+
+def _load_cfg_file() -> Dict[str, Any]:
+    with open(CONFIG_PATH, "r") as f:
+        return yaml.safe_load(f) or {}
+
+def _write_cfg_file(cfg: Dict[str, Any]) -> None:
+    with open(CONFIG_PATH, "w") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False)
+
+def _projects_as_list(projects: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out = []
+    for name, val in projects.items():
+        out.append({
+            "name": name,
+            "id": int(val["id"]),
+            "time_sources": list(val.get("time_sources", ["userstories"])),
+        })
+    return out
+
+def _parse_optional_float(val: Any) -> float | None:
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).strip()
+    if s == "":
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+def _normalize_team_payload(users_payload: Any, existing_tokens: Dict[str, str]) -> List[Dict[str, Any]]:
+    if not isinstance(users_payload, list):
+        raise HTTPException(status_code=400, detail="team.users must be a list")
+    out: List[Dict[str, Any]] = []
+    for raw in users_payload:
+        if not isinstance(raw, dict):
+            raise HTTPException(status_code=400, detail="team.users entries must be objects")
+        username = str(raw.get("username", "")).strip()
+        if not username:
+            raise HTTPException(status_code=400, detail="team.users username is required")
+        display = str(raw.get("display", "")).strip() or username
+        user: Dict[str, Any] = {
+            "username": username,
+            "display": display,
+        }
+        hours = _parse_optional_float(raw.get("expected_hours_per_day"))
+        if hours is not None:
+            user["expected_hours_per_day"] = hours
+        days = _parse_optional_float(raw.get("expected_days_per_week"))
+        if days is not None:
+            user["expected_days_per_week"] = days
+        if "token" in raw:
+            user["token"] = str(raw.get("token", "")).strip()
+        elif username in existing_tokens:
+            user["token"] = existing_tokens[username]
+        out.append(user)
+    return out
+
+def _normalize_projects_payload(projects_payload: Any) -> Dict[str, Any]:
+    if not isinstance(projects_payload, list):
+        raise HTTPException(status_code=400, detail="projects must be a list")
+    out: Dict[str, Any] = {}
+    for raw in projects_payload:
+        if not isinstance(raw, dict):
+            raise HTTPException(status_code=400, detail="projects entries must be objects")
+        name = str(raw.get("name", "")).strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="projects name is required")
+        if name in out:
+            raise HTTPException(status_code=400, detail=f"Duplicate project name: {name}")
+        try:
+            pid = int(raw.get("id"))
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"Invalid project id for {name}")
+        sources = raw.get("time_sources") or ["userstories"]
+        if not isinstance(sources, list):
+            raise HTTPException(status_code=400, detail=f"time_sources must be a list for {name}")
+        clean_sources = [s for s in sources if s in ALLOWED_TIME_SOURCES]
+        if not clean_sources:
+            clean_sources = ["userstories"]
+        out[name] = {"id": pid, "time_sources": clean_sources}
+    return out
 
 def _get(url, **kw):
     kw.setdefault("timeout", DEFAULT_TIMEOUT)
@@ -132,6 +220,18 @@ def fetch_task_history(headers: Dict[str, str], task_id: int) -> List[Dict[str, 
         raise HTTPException(status_code=502, detail=f"History fetch failed for Task {task_id}: {r.status_code} {r.text}")
     return r.json()
 
+def _parse_time_value(val: Any, *, empty_as_zero: bool) -> float | None:
+    if val is None:
+        return 0.0 if empty_as_zero else None
+    s = str(val).strip()
+    if s == "":
+        return 0.0 if empty_as_zero else None
+    s = s.replace(",", ".")
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
 def extract_time_changes(history: List[Dict[str, Any]], target_username: str,
                          start_dt: dt.datetime, end_dt: dt.datetime,
                          attr_name: str) -> List[Dict[str, Any]]:
@@ -156,21 +256,18 @@ def extract_time_changes(history: List[Dict[str, Any]], target_username: str,
 
         for attr in (ca.get("new") or []):
             if attr.get("name") == attr_name:
-                val = str(attr.get("value", "")).replace(",", ".")
-                try:
-                    out.append({"time": float(val), "date": cdt})
-                except ValueError:
-                    pass
+                val = _parse_time_value(attr.get("value"), empty_as_zero=False)
+                if val is not None:
+                    out.append({"time": val, "date": cdt})
 
         for attr in (ca.get("changed") or []):
             if attr.get("name") == attr_name:
                 ch = attr.get("changes", {}).get("value", [None, None])
-                try:
-                    old_v = float(str(ch[0]).replace(",", "."))
-                    new_v = float(str(ch[1]).replace(",", "."))
-                    out.append({"time": new_v - old_v, "date": cdt})
-                except Exception:
-                    pass
+                old_v = _parse_time_value(ch[0], empty_as_zero=True)
+                new_v = _parse_time_value(ch[1], empty_as_zero=True)
+                if old_v is None or new_v is None:
+                    continue
+                out.append({"time": new_v - old_v, "date": cdt})
     return out
 
 # ----------------------
@@ -190,11 +287,67 @@ def list_projects():
     # keys normalized PROJECTS dict
     return {"projects": list(PROJECTS.keys())}
 
+@app.get("/api/config")
+def get_config(include_tokens: bool = False) -> Dict[str, Any]:
+    users = []
+    for u in TEAM_USERS:
+        item = {
+            "display": u.get("display", u.get("username", "")),
+            "username": u.get("username", ""),
+            "expected_hours_per_day": u.get("expected_hours_per_day", DEFAULT_HOURS_PER_DAY),
+            "expected_days_per_week": u.get("expected_days_per_week", DEFAULT_DAYS_PER_WEEK),
+        }
+        if include_tokens and "token" in u:
+            item["token"] = u.get("token", "")
+        users.append(item)
+    return {
+        "team": {"users": users},
+        "projects": _projects_as_list(PROJECTS),
+        "time_sources": sorted(ALLOWED_TIME_SOURCES),
+    }
+
+@app.put("/api/config")
+def update_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+    team_payload = payload.get("team", {})
+    users_payload = team_payload.get("users")
+    projects_payload = payload.get("projects")
+    if users_payload is None or projects_payload is None:
+        raise HTTPException(status_code=400, detail="Payload must include team.users and projects")
+
+    cfg = _load_cfg_file()
+    existing_users = cfg.get("team", {}).get("users", [])
+    existing_tokens = {
+        u.get("username"): u.get("token")
+        for u in existing_users
+        if isinstance(u, dict) and u.get("token") is not None
+    }
+
+    new_users = _normalize_team_payload(users_payload, existing_tokens)
+    new_projects = _normalize_projects_payload(projects_payload)
+
+    cfg.setdefault("team", {})["users"] = new_users
+    cfg["projects"] = new_projects
+    _write_cfg_file(cfg)
+
+    global CFG, TEAM_USERS, RAW_PROJECTS, PROJECTS
+    CFG = cfg
+    TEAM_USERS = new_users
+    RAW_PROJECTS = new_projects
+    PROJECTS = _normalize_projects(RAW_PROJECTS)
+
+    return {
+        "ok": True,
+        "team": {"users": new_users},
+        "projects": _projects_as_list(PROJECTS),
+    }
+
 @app.get("/api/summary")
 def summary(projects: str, start: str, end: str, users: str | None = None) -> Dict[str, Any]:
     try:
-        start_date = dt.datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=dt.timezone.utc, hour=0, minute=0, second=0)
-        end_date = dt.datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=dt.timezone.utc, hour=23, minute=59, second=59)
+        start_day = dt.date.fromisoformat(start)
+        end_day = dt.date.fromisoformat(end)
+        start_local = dt.datetime.combine(start_day, dt.time(0, 0, 0), tzinfo=LOCAL_TZ)
+        end_local = dt.datetime.combine(end_day, dt.time(23, 59, 59, 999000), tzinfo=LOCAL_TZ)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
 
@@ -208,8 +361,8 @@ def summary(projects: str, start: str, end: str, users: str | None = None) -> Di
     roster = ([u for u in TEAM_USERS if u["username"] in [x.strip() for x in users.split(",") if x.strip()]]
               if users else TEAM_USERS)
 
-    wd = workdays_between(start_date.date(), end_date.date())
-    years = range(start_date.year, end_date.year + 1)
+    wd = workdays_between(start_day, end_day)
+    years = range(start_day.year, end_day.year + 1)
 
     # group by credential set (per-user token vs default) to limit duplicate fetches
     groups: Dict[str, Dict[str, Any]] = {}
@@ -229,8 +382,8 @@ def summary(projects: str, start: str, end: str, users: str | None = None) -> Di
         us_map: Dict[int, Dict[str, Any]] = {}
         task_map: Dict[int, Dict[str, Any]] = {}
 
-        start_iso = iso(start_date)
-        end_iso = iso(end_date)
+        start_iso = iso(start_local)
+        end_iso = iso(end_local)
 
         for pd in proj_defs:
             pid = pd["id"]
@@ -270,17 +423,20 @@ def summary(projects: str, start: str, end: str, users: str | None = None) -> Di
             uname = member["username"]
             display = member.get("display", uname)
             entries = []
+            total_times: List[float] = []
 
             # User Stories
             for us_id, us in us_map.items():
-                for c in extract_time_changes(us_hist.get(us_id, []), uname, start_date, end_date, CUSTOM_TIME_ATTR):
+                for c in extract_time_changes(us_hist.get(us_id, []), uname, start_local, end_local, CUSTOM_TIME_ATTR):
+                    raw_time = c["time"]
                     entries.append({
                         "userstory": us.get("subject", ""),
                         "task": None,
                         "date": c["date"].strftime("%Y-%m-%d"),
-                        "hours": round(c["time"], 2),
+                        "hours": round(raw_time, 2),
                         "source": "US",
                     })
+                    total_times.append(raw_time)
 
             # Tasks
             for t_id, t in task_map.items():
@@ -289,16 +445,18 @@ def summary(projects: str, start: str, end: str, users: str | None = None) -> Di
                 parent_us_subject = ""
                 if isinstance(t.get("user_story"), dict):
                     parent_us_subject = t["user_story"].get("subject", "")
-                for c in extract_time_changes(task_hist.get(t_id, []), uname, start_date, end_date, TASK_CUSTOM_TIME_ATTR):
+                for c in extract_time_changes(task_hist.get(t_id, []), uname, start_local, end_local, TASK_CUSTOM_TIME_ATTR):
+                    raw_time = c["time"]
                     entries.append({
                         "userstory": parent_us_subject,
                         "task": subj,
                         "date": c["date"].strftime("%Y-%m-%d"),
-                        "hours": round(c["time"], 2),
+                        "hours": round(raw_time, 2),
                         "source": "TASK",
                     })
+                    total_times.append(raw_time)
 
-            total_hours = round(sum(e["hours"] for e in entries), 2)
+            total_hours = round(sum(total_times), 2)
 
             hours_per_day = float(member.get("expected_hours_per_day", DEFAULT_HOURS_PER_DAY))
             days_per_week = float(member.get("expected_days_per_week", DEFAULT_DAYS_PER_WEEK))
